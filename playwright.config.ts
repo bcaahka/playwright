@@ -24,8 +24,8 @@ export default defineConfig({
     baseURL: 'https://192.168.253.40:6161',
     ignoreHTTPSErrors: true,
 
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
+    trace: 'off',
+    video: 'off',
     screenshot: 'only-on-failure',
 
     headless: isCI,
