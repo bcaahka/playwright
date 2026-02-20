@@ -42,10 +42,13 @@ function extractOtp(rawHtml: string): string {
 
 async function enterPin(page: Page, pin: string) {
   const pinFields = page.locator('.pin-field');
+  await expect(pinFields.first()).toBeVisible({ timeout: 15000 });
   await expect(pinFields).toHaveCount(pin.length);
+
   for (let i = 0; i < pin.length; i++) {
     await pinFields.nth(i).focus();
-    await pinFields.nth(i).press(pin[i]);
+    // Имитируем человека (задержка 100мс), чтобы Jenkins не "проглатывал" цифры
+    await pinFields.nth(i).type(pin[i], { delay: 100 });
   }
   console.log('🔓 PIN entered successfully');
 }
@@ -103,18 +106,18 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     await expect(pinPageText).toBeVisible({ timeout: 10000 });
     await enterPin(page, CONFIG.USER.pin);
 
-    // --- FIX 1: Умное ожидание кнопки Enable ---
+    // --- СТАБИЛИЗАЦИЯ: Умное ожидание кнопки Enable ---
     const enableBtn = page.getByText('Enable', { exact: true });
     try {
-      // Ждем 5 секунд. Если её нет - идем дальше без ошибки
       await enableBtn.waitFor({ state: 'visible', timeout: 5000 });
       await enableBtn.click();
       console.log('✔ "Enable" button clicked');
     } catch (e) {
-      console.log('ℹ️ "Enable" button skipped (not visible in CI environment)');
+      console.log('ℹ️ "Enable" button skipped (not visible in CI)');
     }
 
-    await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible();
+    // Ждем загрузки Дашборда (Home)
+    await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 20000 });
   });
 
   // -----------------------------------------------------------------------
@@ -138,11 +141,8 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     await page.goto(CONFIG.URL, { waitUntil: 'networkidle' });
 
     // --- PIN AFTER RELOAD ---
-    const pinPageAfterReload = page.getByText('Enter your PIN-code');
-    await expect(pinPageAfterReload).toBeVisible({ timeout: 15000 });
-
     await enterPin(page, CONFIG.USER.pin);
-    await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 20000 });
 
     const bgColorAfter = await page.evaluate(
       () => window.getComputedStyle(document.body).backgroundColor,
@@ -151,7 +151,7 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   });
 
   // -----------------------------------------------------------------------
-  // TEST 3: FINANCE
+  // TEST 3: FINANCE (ОРИГИНАЛЬНАЯ ЛОГИКА И СЕЛЕКТОРЫ)
   // -----------------------------------------------------------------------
   test('Step 3: BTC Exchange Logic', async () => {
     await page.getByRole('tab', { name: 'Wallets' }).click();
@@ -181,7 +181,13 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     await page.locator('#sell').fill(SELL_AMOUNT.toString());
     await page.getByRole('button', { name: 'Exchange' }).click();
 
+    // Стабилизация: небольшая пауза перед подтверждением в CI
+    await page.waitForTimeout(500);
+
+    // Твой оригинальный клик
     await page.locator('button').nth(5).click();
+
+    await page.waitForTimeout(500);
     await page.getByText('Done').click();
 
     await page.getByRole('tab', { name: 'Wallets' }).click();
@@ -193,7 +199,7 @@ test.describe('E2E User Journey: Smoke Suite', () => {
 
     let newBalance = oldBalance;
 
-    // --- FIX 2: Увеличиваем таймаут для CI (60 попыток = 30 секунд) ---
+    // --- СТАБИЛИЗАЦИЯ: 60 попыток (30 секунд) для CI сервера ---
     const maxRetries = 60;
 
     console.log('⏳ Waiting for balance update...');
@@ -230,7 +236,7 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     expect(txText).toContain('BTC');
     expect(txText).toContain(SELL_AMOUNT.toString());
 
-    // Выход из истории транзакций (возврат назад)
+    // Выход из истории транзакций (твоя логика)
     await page.getByRole('button').first().click();
   });
 
@@ -247,6 +253,7 @@ test.describe('E2E User Journey: Smoke Suite', () => {
 
     const countBefore = await walletRows.count();
 
+    // Твой локатор
     const hideCheckbox = page.getByRole('checkbox', { name: 'Hide empty balances' });
     await hideCheckbox.click();
     await page.waitForTimeout(1000); // Ждем перерисовку
@@ -254,7 +261,6 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     const countAfter = await walletRows.count();
     expect(countAfter).toBeLessThanOrEqual(countBefore);
 
-    // Возвращаем как было
     await hideCheckbox.click();
   });
 
@@ -262,21 +268,22 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   // TEST 6: SECURITY (Logout)
   // -----------------------------------------------------------------------
   test('Step 6: Logout & Security Check', async () => {
-    await page.getByRole('tab', { name: /Profile|Профиль/i }).click();
+    await page.getByRole('tab', { name: 'Profile' }).click();
 
-    // ПЕРЕХВАТЧИК СИСТЕМНОГО ДИАЛОГА (чтобы нажать ОК при выходе)
+    // Обработка системного диалога (чтобы Playwright нажал ОК, а не Отмена)
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
 
+    // Твой локатор логаута
     const logoutBtn = page
       .locator('div')
-      .filter({ hasText: /^Logout|Выход$/i })
-      .last();
+      .filter({ hasText: /^Logout$/ })
+      .nth(2);
     await logoutBtn.scrollIntoViewIfNeeded();
     await logoutBtn.click();
 
-    const loginInput = page.getByRole('textbox', { name: /Login|E-mail|Логин/i });
+    const loginInput = page.getByRole('textbox', { name: 'Login or E-mail' });
     await expect(loginInput).toBeVisible({ timeout: 15000 });
 
     // Проверка, что сессия убита

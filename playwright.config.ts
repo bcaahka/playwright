@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: './tests',
 
   timeout: 90 * 1000,
-  expect: { timeout: 10 * 1000 },
+  expect: { timeout: 15 * 1000 }, // Увеличили глобальный таймаут ожиданий до 15 сек
 
   fullyParallel: true,
   forbidOnly: isCI,
@@ -31,10 +31,8 @@ export default defineConfig({
       slowMo: isCI ? 0 : 50,
     },
 
-    // --- ФИКС ЛОКАЛИ И ЧАСОВОГО ПОЯСА ---
-    // Форсируем английский язык интерфейса (браузер передаст заголовок Accept-Language: en-US)
+    // --- ГАРАНТИЯ АНГЛИЙСКОГО ИНТЕРФЕЙСА В JENKINS ---
     locale: 'en-US',
-    // Жестко фиксируем часовой пояс (полезно, если в тестах есть проверки времени/истории)
     timezoneId: 'Europe/London',
   },
 
