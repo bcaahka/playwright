@@ -30,7 +30,7 @@ export default defineConfig({
 
     headless: isCI,
     launchOptions: {
-      slowMo: isCI ? 0 : 50,
+      slowMo: isCI ? 0 : 350,
     },
   },
 
