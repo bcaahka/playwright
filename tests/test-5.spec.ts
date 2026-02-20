@@ -25,13 +25,13 @@ async function waitForNewEmail(
     }
     await new Promise<void>((resolve) => setTimeout(resolve, interval));
   }
-  throw new Error('New email not received');
+  throw new Error('⚠️ New email not received within timeout');
 }
 
 function extractOtpFromMailhogHtml(rawHtml: string): string {
   const normalized = rawHtml.replace(/=\r?\n/g, '').replace(/=3D/g, '=');
   const match = normalized.match(/<strong>\s*(\d{6})\s*<\/strong>/i);
-  if (!match) throw new Error('OTP not found in email');
+  if (!match) throw new Error('⚠️ OTP not found in email');
   return match[1];
 }
 
@@ -47,12 +47,11 @@ async function enterPin(page: Page, pin: string) {
 }
 
 // ---------------- MAIN TEST ----------------
-test('Full flow + Dark Theme Persistence + localStorage', async ({ page }) => {
+test('Full flow + Dark Theme Persistence + localStorage + BTC Exchange', async ({ page }) => {
   const lastEmailId = await getLastEmailId();
 
   // ===== LOGIN FLOW =====
   await page.goto('https://192.168.253.40:6161');
-  // Навигация до формы логина
   await page.getByRole('button').first().click();
   await page.getByRole('button').nth(1).click();
   await page.getByRole('button').nth(2).click();
@@ -80,17 +79,12 @@ test('Full flow + Dark Theme Persistence + localStorage', async ({ page }) => {
 
   const enableBtn = page.getByText('Enable', { exact: true });
   await enableBtn.click();
-
-  const homeTab = page.getByRole('tab', { name: 'Home' });
-  await expect(homeTab).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible();
 
   // ===== DARK THEME =====
   const profileTab = page.getByRole('tab', { name: 'Profile' });
   await profileTab.click();
-
-  const themeButton = page.getByText('ThemeLight', { exact: true });
-  await themeButton.click();
-
+  await page.getByText('ThemeLight', { exact: true }).click();
   const darkThemeCheckbox = page.locator('div').filter({ hasText: /^Dark$/ });
   await darkThemeCheckbox.click();
 
@@ -119,8 +113,6 @@ test('Full flow + Dark Theme Persistence + localStorage', async ({ page }) => {
   const pinPageAfterReload = page.getByText('Enter your PIN-code');
   await expect(pinPageAfterReload).toBeVisible({ timeout: 15000 });
   await enterPin(page, PIN);
-
-  // ---- BACK TO HOME ----
   await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 15000 });
 
   // ---- CHECK BG COLOR AFTER RELOAD ----
@@ -148,4 +140,77 @@ test('Full flow + Dark Theme Persistence + localStorage', async ({ page }) => {
   } else {
     console.warn('⚠️ Dark theme key not found in localStorage!');
   }
+
+  // ===== BTC EXCHANGE FLOW =====
+
+  // --- 1. Перейти в Wallets ---
+  await page.getByRole('tab', { name: 'Wallets' }).click();
+
+  // --- 2. Нажать глазок, чтобы видеть балансы (один раз) ---
+  await page.getByRole('img').nth(1).click();
+
+  // --- 3. Найти блок BTC и баланс ---
+  const btcWalletBlock = page
+    .locator('div.MuiStack-root.css-1kled2g', {
+      has: page.locator('p', { hasText: 'BTC' }),
+    })
+    .first();
+  const btcBalanceDiv = btcWalletBlock.locator('div.MuiTypography-root.css-9a9k88').first();
+
+  // --- 4. Считываем старый баланс BTC ---
+  const oldBalanceText = await btcBalanceDiv.innerText();
+  const oldBalance = parseFloat(oldBalanceText.replace(/\s/g, '').replace(',', '.'));
+  console.log('💰 Старый баланс BTC:', oldBalance);
+
+  // --- 5. Клик на блок BTC перед Exchange ---
+  const btcBlockForExchange = page
+    .locator('div')
+    .filter({ hasText: /^BTCBitcoin$/ })
+    .first();
+  await btcBlockForExchange.click();
+
+  // --- 6. Переход в Exchange ---
+  await page
+    .locator('div')
+    .filter({ hasText: /^Exchange$/ })
+    .click();
+
+  // --- 7. Ввод суммы для продажи ---
+  const sellAmount = 0.01; // немного увеличено для надежности
+  await page.locator('#sell').fill(sellAmount.toString());
+
+  // --- 8. Нажатие кнопки Exchange ---
+  await page.getByRole('button', { name: 'Exchange' }).click();
+
+  // --- 9. Подтверждение (пятая кнопка) ---
+  await page.locator('button').nth(5).click();
+
+  // --- 10. Ждём завершения ---
+  await page.getByText('Done').click();
+
+  // --- 11. Возврат в Wallets ---
+  await page.getByRole('tab', { name: 'Wallets' }).click();
+
+  // --- 12. Ждём обновления баланса BTC ---
+  const btcWalletBlockNew = page
+    .locator('div.MuiStack-root.css-1kled2g', {
+      has: page.locator('p', { hasText: 'BTC' }),
+    })
+    .first();
+  const btcBalanceDivNew = btcWalletBlockNew.locator('div.MuiTypography-root.css-9a9k88').first();
+
+  let newBalance = oldBalance;
+  const maxRetries = 20;
+  for (let i = 0; i < maxRetries; i++) {
+    const newBalanceText = await btcBalanceDivNew.innerText();
+    const cleanedText = newBalanceText.replace(/\s/g, '').replace(',', '.');
+    newBalance = parseFloat(cleanedText);
+    if (!isNaN(newBalance) && newBalance !== oldBalance) break;
+    await page.waitForTimeout(500);
+  }
+
+  console.log('💰 Новый баланс BTC:', newBalance);
+
+  // --- 13. Проверка, что баланс уменьшился на sellAmount ---
+  expect(Math.abs(newBalance - (oldBalance - sellAmount))).toBeLessThan(1e-8);
 });
