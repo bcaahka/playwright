@@ -47,7 +47,6 @@ async function enterPin(page: Page, pin: string) {
 
   for (let i = 0; i < pin.length; i++) {
     await pinFields.nth(i).focus();
-    // Имитируем человека (задержка 100мс), чтобы Jenkins не "проглатывал" цифры
     await pinFields.nth(i).type(pin[i], { delay: 100 });
   }
   console.log('🔓 PIN entered successfully');
@@ -59,10 +58,13 @@ async function enterPin(page: Page, pin: string) {
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('E2E User Journey: Smoke Suite', () => {
+test.describe('Тест скипа', () => {
   let page: Page;
   let lastEmailId: string | null;
   const SELL_AMOUNT = 0.01;
+
+  // Флаг для пропуска связанных тестов
+  let isExchangeSkipped = false;
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage();
@@ -79,7 +81,6 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   test('Step 1: Login, OTP and PIN creation', async () => {
     await page.goto(CONFIG.URL);
 
-    // --- SECRET CLICKS ---
     await page.getByRole('button').first().click();
     await page.getByRole('button').nth(1).click();
     await page.getByRole('button').nth(2).click();
@@ -90,23 +91,19 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     await page.getByRole('button').nth(4).click();
     await page.getByText('Test0', { exact: true }).click();
 
-    // --- CREDENTIALS ---
     await page.getByRole('textbox', { name: 'Login or E-mail' }).fill(CONFIG.USER.email);
     await page.getByRole('textbox', { name: 'Password' }).fill(CONFIG.USER.pass);
     await page.getByRole('button', { name: 'Submit' }).click();
 
-    // --- OTP ---
     const emailHtml = await waitForNewEmail(lastEmailId);
     const otp = extractOtp(emailHtml);
     await page.getByPlaceholder('------').fill(otp);
     console.log('✔ OTP entered');
 
-    // --- PIN ---
     const pinPageText = page.getByText('Create your PIN-code');
     await expect(pinPageText).toBeVisible({ timeout: 10000 });
     await enterPin(page, CONFIG.USER.pin);
 
-    // --- СТАБИЛИЗАЦИЯ: Умное ожидание кнопки Enable ---
     const enableBtn = page.getByText('Enable', { exact: true });
     try {
       await enableBtn.waitFor({ state: 'visible', timeout: 5000 });
@@ -116,7 +113,6 @@ test.describe('E2E User Journey: Smoke Suite', () => {
       console.log('ℹ️ "Enable" button skipped (not visible in CI)');
     }
 
-    // Ждем загрузки Дашборда (Home)
     await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 20000 });
   });
 
@@ -135,12 +131,10 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     );
     expect(bgColorBefore).not.toBe('rgb(255, 255, 255)');
 
-    // --- SPA RELOAD ---
     console.log('🔄 Reloading page...');
     await page.goto('about:blank');
     await page.goto(CONFIG.URL, { waitUntil: 'networkidle' });
 
-    // --- PIN AFTER RELOAD ---
     await enterPin(page, CONFIG.USER.pin);
     await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 20000 });
 
@@ -151,13 +145,13 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   });
 
   // -----------------------------------------------------------------------
-  // TEST 3: FINANCE (ОРИГИНАЛЬНАЯ ЛОГИКА И СЕЛЕКТОРЫ)
+  // TEST 3: FINANCE
   // -----------------------------------------------------------------------
   test('Step 3: BTC Exchange Logic', async () => {
     await page.getByRole('tab', { name: 'Wallets' }).click();
     await page.getByRole('img').nth(1).click();
+    await page.waitForTimeout(1000);
 
-    // Твой оригинальный селектор
     const btcWalletBlock = page
       .locator('div.MuiStack-root.css-1kled2g', { has: page.locator('p', { hasText: 'BTC' }) })
       .first();
@@ -167,6 +161,18 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     const oldBalanceText = await btcBalanceDiv.innerText();
     const oldBalance = parseFloat(oldBalanceText.replace(/\s/g, '').replace(',', '.'));
     console.log('💰 Старый баланс BTC:', oldBalance);
+
+    // =====================================================================
+    // ПРОВЕРКА ДОСТАТОЧНОСТИ БАЛАНСА
+    // =====================================================================
+    if (oldBalance < SELL_AMOUNT) {
+      isExchangeSkipped = true; // Запоминаем, что мы пропустили обмен
+      console.log(
+        `⚠️ Недостаточно средств для обмена. Требуется: ${SELL_AMOUNT}, Баланс: ${oldBalance}`,
+      );
+      // Прерываем тест красиво (будет помечен желтым "Skipped" в отчете)
+      test.skip(true, `Insufficient BTC balance. Required: ${SELL_AMOUNT}, Actual: ${oldBalance}`);
+    }
 
     await page
       .locator('div')
@@ -181,12 +187,8 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     await page.locator('#sell').fill(SELL_AMOUNT.toString());
     await page.getByRole('button', { name: 'Exchange' }).click();
 
-    // Стабилизация: небольшая пауза перед подтверждением в CI
     await page.waitForTimeout(500);
-
-    // Твой оригинальный клик
     await page.locator('button').nth(5).click();
-
     await page.waitForTimeout(500);
     await page.getByText('Done').click();
 
@@ -198,8 +200,6 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     const btcBalanceDivNew = btcWalletBlockNew.locator('div.MuiTypography-root.css-9a9k88').first();
 
     let newBalance = oldBalance;
-
-    // --- СТАБИЛИЗАЦИЯ: 60 попыток (30 секунд) для CI сервера ---
     const maxRetries = 60;
 
     console.log('⏳ Waiting for balance update...');
@@ -220,6 +220,11 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   // TEST 4: HISTORY CHECK
   // -----------------------------------------------------------------------
   test('Step 4: Verify Transaction History', async () => {
+    // Если обмен не состоялся из-за нехватки баланса, пропускаем и проверку истории
+    if (isExchangeSkipped) {
+      test.skip(true, 'Exchange was skipped due to low balance, no history to verify.');
+    }
+
     await page.getByRole('tab', { name: 'Profile' }).click();
     await page
       .locator('div')
@@ -236,7 +241,6 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     expect(txText).toContain('BTC');
     expect(txText).toContain(SELL_AMOUNT.toString());
 
-    // Выход из истории транзакций (твоя логика)
     await page.getByRole('button').first().click();
   });
 
@@ -253,10 +257,9 @@ test.describe('E2E User Journey: Smoke Suite', () => {
 
     const countBefore = await walletRows.count();
 
-    // Твой локатор
     const hideCheckbox = page.getByRole('checkbox', { name: 'Hide empty balances' });
     await hideCheckbox.click();
-    await page.waitForTimeout(1000); // Ждем перерисовку
+    await page.waitForTimeout(1000);
 
     const countAfter = await walletRows.count();
     expect(countAfter).toBeLessThanOrEqual(countBefore);
@@ -267,15 +270,16 @@ test.describe('E2E User Journey: Smoke Suite', () => {
   // -----------------------------------------------------------------------
   // TEST 6: SECURITY (Logout)
   // -----------------------------------------------------------------------
+  // -----------------------------------------------------------------------
+  // TEST 6: SECURITY (Logout)
+  // -----------------------------------------------------------------------
   test('Step 6: Logout & Security Check', async () => {
     await page.getByRole('tab', { name: 'Profile' }).click();
 
-    // Обработка системного диалога (чтобы Playwright нажал ОК, а не Отмена)
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
 
-    // Твой локатор логаута
     const logoutBtn = page
       .locator('div')
       .filter({ hasText: /^Logout$/ })
@@ -286,8 +290,19 @@ test.describe('E2E User Journey: Smoke Suite', () => {
     const loginInput = page.getByRole('textbox', { name: 'Login or E-mail' });
     await expect(loginInput).toBeVisible({ timeout: 15000 });
 
-    // Проверка, что сессия убита
+    // --- SECURITY CHECK ---
+    console.log('🕵️ Checking back button hijacking...');
     await page.goBack();
-    await expect(loginInput).toBeVisible();
+
+    // 1. Убеждаемся, что нас НЕ пустило обратно в приложение (вкладка Home должна отсутствовать)
+    await expect(page.getByRole('tab', { name: 'Home' })).toBeHidden();
+
+    // 2. Ждем появления ЛИБО Логина, ЛИБО экрана ввода ПИН-кода
+    const pinScreen = page.getByText(/Create your PIN-code|Enter your PIN-code/i);
+
+    // Playwright будет ждать, пока не появится хотя бы один из этих элементов
+    await expect(loginInput.or(pinScreen).first()).toBeVisible();
+
+    console.log('✅ Session securely terminated');
   });
 });
