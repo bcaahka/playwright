@@ -6,7 +6,9 @@ pipeline {
     }
 
     environment {
+        // Говорим Playwright, что он запускается на сервере
         CI = 'true'
+        // Забираем пароль от тестов из хранилища Jenkins
         TEST_USER_PASSWORD = credentials('bynex-test-password')
     }
 
@@ -21,6 +23,7 @@ pipeline {
         stage('Install Playwright Browsers') {
             steps {
                 echo '🌐 Установка браузеров Playwright...'
+                // Устанавливаем Chromium и Safari (webkit) с системными зависимостями
                 sh 'npx playwright install --with-deps chromium webkit'
             }
         }
@@ -36,8 +39,10 @@ pipeline {
     post {
         always {
             echo '📁 Сохранение отчетов...'
+            // 1. Сохраняем папку с отчетом как артефакт (чтобы скачать ZIP)
             archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
 
+            // 2. Генерируем красивую HTML вкладку прямо в интерфейсе Jenkins
             publishHTML([
                 allowMissing: false,
                 alwaysLinkToLastBuild: true,
@@ -49,30 +54,37 @@ pipeline {
             ])
         }
         success {
-            echo '✅ Тесты прошли успешно!'
+            echo '✅ Тесты прошли успешно! Отправляем уведомление в Telegram...'
             withCredentials([
                 string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
                 string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
             ]) {
+                // Используем JSON для 100% гарантии, что HTML-ссылка отрендерится в Телеграме
                 sh """
-                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
-                -d chat_id=${CHAT_ID} \
-                -d parse_mode="HTML" \
-                -d text="✅ <b>Smoke Tests PASSED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет</a>"
+                curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "chat_id": "${CHAT_ID}",
+                  "parse_mode": "HTML",
+                  "text": "✅ <b>Smoke Tests PASSED</b>\\n\\n🌐 Проект: ByNex\\n🕒 Сборка: #${BUILD_NUMBER}\\n📊 <a href=\\"${BUILD_URL}Playwright_20Report/\\">Посмотреть отчет в Jenkins</a>"
+                }'
                 """
             }
         }
         failure {
-            echo '❌ Тесты упали!'
+            echo '❌ Тесты упали! Отправляем уведомление в Telegram...'
             withCredentials([
                 string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
                 string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
             ]) {
                 sh """
-                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
-                -d chat_id=${CHAT_ID} \
-                -d parse_mode="HTML" \
-                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Требуется внимание!%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет</a>"
+                curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "chat_id": "${CHAT_ID}",
+                  "parse_mode": "HTML",
+                  "text": "❌ <b>Smoke Tests FAILED</b>\\n\\n🌐 Проект: ByNex\\n🕒 Сборка: #${BUILD_NUMBER}\\n⚠️ Требуется внимание!\\n📊 <a href=\\"${BUILD_URL}Playwright_20Report/\\">Посмотреть причину падения (Скриншоты и Видео)</a>"
+                }'
                 """
             }
         }
