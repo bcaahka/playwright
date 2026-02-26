@@ -54,37 +54,30 @@ pipeline {
             ])
         }
         success {
-            echo '✅ Тесты прошли успешно! Отправляем уведомление в Telegram...'
+            echo '✅ Тесты прошли успешно! Отправляем уведомление...'
             withCredentials([
                 string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
                 string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
             ]) {
-                // Используем JSON для 100% гарантии, что HTML-ссылка отрендерится в Телеграме
                 sh """
-                curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-                -H "Content-Type: application/json" \
-                -d '{
-                  "chat_id": "${CHAT_ID}",
-                  "parse_mode": "HTML",
-                  "text": "✅ <b>Smoke Tests PASSED</b>\\n\\n🌐 Проект: ByNex\\n🕒 Сборка: #${BUILD_NUMBER}\\n📊 <a href=\\"${BUILD_URL}Playwright_20Report/\\">Посмотреть отчет в Jenkins</a>"
-                }'
+                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
+                -d chat_id="${CHAT_ID}" \
+                -d parse_mode="HTML" \
+                -d text="✅ <b>Smoke Tests PASSED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A📊 Отчет (скопируй ссылку):%0A${BUILD_URL}Playwright_20Report/"
                 """
             }
         }
         failure {
-            echo '❌ Тесты упали! Отправляем уведомление в Telegram...'
+            echo '❌ Тесты упали! Отправляем уведомление...'
             withCredentials([
                 string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
                 string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
             ]) {
                 sh """
-                curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-                -H "Content-Type: application/json" \
-                -d '{
-                  "chat_id": "${CHAT_ID}",
-                  "parse_mode": "HTML",
-                  "text": "❌ <b>Smoke Tests FAILED</b>\\n\\n🌐 Проект: ByNex\\n🕒 Сборка: #${BUILD_NUMBER}\\n⚠️ Требуется внимание!\\n📊 <a href=\\"${BUILD_URL}Playwright_20Report/\\">Посмотреть причину падения (Скриншоты и Видео)</a>"
-                }'
+                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
+                -d chat_id="${CHAT_ID}" \
+                -d parse_mode="HTML" \
+                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Отчет с ошибкой и видео:%0A${BUILD_URL}Playwright_20Report/"
                 """
             }
         }
