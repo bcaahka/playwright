@@ -1,16 +1,12 @@
 pipeline {
-    // Запускаем напрямую на сервере Jenkins (без Docker)
     agent any 
 
-    // Говорим Jenkins использовать Node.js (нужно будет настроить плагин на Шаге 2)
     tools {
-        nodejs 'NodeJS' // Имя должно совпадать с настройками в Jenkins
+        nodejs 'NodeJS' 
     }
 
     environment {
-        // Флаг CI, чтобы Playwright понимал, что он на сервере (запуск в headless, без UI)
         CI = 'true'
-        // Секретный пароль из хранилища Jenkins
         TEST_USER_PASSWORD = credentials('bynex-test-password')
     }
 
@@ -37,7 +33,7 @@ pipeline {
         }
     }
 
-        post {
+    post {
         always {
             echo '📁 Сохранение отчетов...'
             archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
@@ -76,9 +72,9 @@ pipeline {
                 curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
                 -d chat_id=${CHAT_ID} \
                 -d parse_mode="HTML" \
-                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Требуется внимание!%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет с видео</a>"
+                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Требуется внимание!%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет</a>"
                 """
             }
         }
     }
-
+}
