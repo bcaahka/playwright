@@ -1,14 +1,16 @@
 pipeline {
+    // Запускаем тесты напрямую на сервере Jenkins
     agent any 
 
+    // Загружаем NodeJS, который мы настроили в Jenkins Tools
     tools {
         nodejs 'NodeJS' 
     }
 
     environment {
-        // Говорим Playwright, что он запускается на сервере
+        // Флаг CI сообщает Playwright, что нужно работать в фоновом режиме (headless: true)
         CI = 'true'
-        // Забираем пароль от тестов из хранилища Jenkins
+        // Забираем пароль от тестового аккаунта из секретов Jenkins
         TEST_USER_PASSWORD = credentials('bynex-test-password')
     }
 
@@ -22,8 +24,8 @@ pipeline {
 
         stage('Install Playwright Browsers') {
             steps {
-                echo '🌐 Установка браузеров Playwright...'
-                // Устанавливаем Chromium и Safari (webkit) с системными зависимостями
+                echo '🌐 Установка браузеров Playwright (Chrome & Safari)...'
+                // Устанавливаем браузеры и их системные зависимости
                 sh 'npx playwright install --with-deps chromium webkit'
             }
         }
@@ -31,6 +33,7 @@ pipeline {
         stage('Run Tests') {
             steps {
                 echo '🚀 Запуск E2E тестов...'
+                // Запускаем тесты в 1 поток для стабильности
                 sh 'npx playwright test --workers=1'
             }
         }
@@ -39,10 +42,10 @@ pipeline {
     post {
         always {
             echo '📁 Сохранение отчетов...'
-            // 1. Сохраняем папку с отчетом как артефакт (чтобы скачать ZIP)
+            // 1. Сохраняем папку с отчетом как артефакт (чтобы скачивать ZIP)
             archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
 
-            // 2. Генерируем красивую HTML вкладку прямо в интерфейсе Jenkins
+            // 2. Публикуем красивый HTML отчет прямо в интерфейсе Jenkins (HTML Publisher Plugin)
             publishHTML([
                 allowMissing: false,
                 alwaysLinkToLastBuild: true,
@@ -54,32 +57,10 @@ pipeline {
             ])
         }
         success {
-            echo '✅ Тесты прошли успешно! Отправляем уведомление...'
-            withCredentials([
-                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
-                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
-            ]) {
-                sh """
-                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
-                -d chat_id="${CHAT_ID}" \
-                -d parse_mode="HTML" \
-                -d text="✅ <b>Smoke Tests PASSED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A📊 Отчет (скопируй ссылку):%0A${BUILD_URL}Playwright_20Report/"
-                """
-            }
+            echo '✅ Тесты прошли успешно!'
         }
         failure {
-            echo '❌ Тесты упали! Отправляем уведомление...'
-            withCredentials([
-                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
-                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
-            ]) {
-                sh """
-                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
-                -d chat_id="${CHAT_ID}" \
-                -d parse_mode="HTML" \
-                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Отчет с ошибкой и видео:%0A${BUILD_URL}Playwright_20Report/"
-                """
-            }
+            echo '❌ Тесты упали. Проверьте Playwright Report для деталей.'
         }
     }
 }
