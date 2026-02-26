@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: './tests',
 
   timeout: 90 * 1000,
-  expect: { timeout: 15 * 1000 }, // Увеличили глобальный таймаут ожиданий до 15 сек
+  expect: { timeout: 15 * 1000 },
 
   fullyParallel: true,
   forbidOnly: isCI,
@@ -31,7 +31,6 @@ export default defineConfig({
       slowMo: isCI ? 0 : 200,
     },
 
-    // --- ГАРАНТИЯ АНГЛИЙСКОГО ИНТЕРФЕЙСА В JENKINS ---
     locale: 'en-US',
     timezoneId: 'Europe/London',
   },
@@ -42,6 +41,14 @@ export default defineConfig({
       use: {
         ...devices['Pixel 5'],
         browserName: 'chromium',
+      },
+    },
+
+    {
+      name: 'Mobile Safari',
+      use: {
+        ...devices['iPhone 13'],
+        browserName: 'webkit',
       },
     },
   ],
