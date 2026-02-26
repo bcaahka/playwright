@@ -37,7 +37,7 @@ pipeline {
         }
     }
 
-    post {
+        post {
         always {
             echo '📁 Сохранение отчетов...'
             archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
@@ -54,9 +54,31 @@ pipeline {
         }
         success {
             echo '✅ Тесты прошли успешно!'
+            withCredentials([
+                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
+                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
+            ]) {
+                sh """
+                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
+                -d chat_id=${CHAT_ID} \
+                -d parse_mode="HTML" \
+                -d text="✅ <b>Smoke Tests PASSED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет</a>"
+                """
+            }
         }
         failure {
-            echo '❌ Тесты упали. Смотри отчет Playwright Report.'
+            echo '❌ Тесты упали!'
+            withCredentials([
+                string(credentialsId: 'telegram-bot-token', variable: 'BOT_TOKEN'),
+                string(credentialsId: 'telegram-chat-id', variable: 'CHAT_ID')
+            ]) {
+                sh """
+                curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/sendMessage \
+                -d chat_id=${CHAT_ID} \
+                -d parse_mode="HTML" \
+                -d text="❌ <b>Smoke Tests FAILED</b>%0A%0A🌐 Проект: ByNex%0A🕒 Сборка: #${BUILD_NUMBER}%0A⚠️ Требуется внимание!%0A<a href='${BUILD_URL}Playwright_20Report/'>📊 Посмотреть отчет с видео</a>"
+                """
+            }
         }
     }
-}
+
