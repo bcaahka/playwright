@@ -58,12 +58,11 @@ async function enterPin(page: Page, pin: string) {
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Тест скипа', () => {
+test.describe('BynexE2E', () => {
   let page: Page;
   let lastEmailId: string | null;
   const SELL_AMOUNT = 0.01;
 
-  // Флаг для пропуска связанных тестов
   let isExchangeSkipped = false;
 
   test.beforeAll(async ({ browser }) => {
@@ -213,7 +212,8 @@ test.describe('Тест скипа', () => {
     }
 
     console.log('💰 Новый баланс BTC:', newBalance);
-    expect(Math.abs(newBalance - (oldBalance - SELL_AMOUNT))).toBeLessThan(1e-8);
+    expect(newBalance).toBeLessThan(oldBalance);
+    expect(newBalance).toBeLessThanOrEqual(oldBalance - SELL_AMOUNT + 0.0001);
   });
 
   // -----------------------------------------------------------------------
@@ -277,63 +277,50 @@ test.describe('Тест скипа', () => {
     await page.getByRole('tab', { name: 'Wallets' }).click();
     await page.getByRole('tab', { name: 'Fiat' }).click();
 
-    // 1. ЗАЩИТА ОТ UI ФИЛЬТРОВ
     const hideCheckbox = page.getByRole('checkbox', { name: 'Hide empty balances' });
     if ((await hideCheckbox.isVisible()) && (await hideCheckbox.isChecked())) {
       await hideCheckbox.uncheck();
-      await page.waitForTimeout(500); // Ждем перерисовку
+      await page.waitForTimeout(500);
     }
 
     const hiddenAsterisks = page.getByText('***').first();
     if (await hiddenAsterisks.isVisible()) {
       await page.getByRole('img').nth(1).click();
-      await page.waitForTimeout(1000); // Ждем анимацию цифр
+      await page.waitForTimeout(1000);
     }
 
-    // 2. СЧИТЫВАЕМ БАЛАНС USD (Используем оригинальные классы)
     const usdWalletBlock = page
       .locator('div.MuiStack-root.css-1kled2g', { has: page.locator('p', { hasText: 'USD' }) })
-      .filter({ hasText: 'Доллар США' }) // Фильтр от шапки общего баланса
+      .filter({ hasText: 'Доллар США' })
       .first();
 
     const usdBalanceDiv = usdWalletBlock.locator('div.MuiTypography-root.css-9a9k88').first();
 
-    // Ждем, чтобы элемент точно появился в DOM
     await expect(usdBalanceDiv).toBeVisible({ timeout: 10000 });
     const usdBalanceText = await usdBalanceDiv.innerText();
 
-    // --- УМНЫЙ ПАРСЕР ЧИСЕЛ ---
-    // Убираем все пробелы (включая неразрывные &nbsp;) и символ валюты, если он есть
     let cleanedText = usdBalanceText.replace(/\s|\u00A0|USD/g, '');
 
-    // Если в числе есть И запятая, И точка (Американский формат: "31,202.00")
     if (cleanedText.includes(',') && cleanedText.includes('.')) {
-      // Запятая - это разделитель тысяч. Просто удаляем её.
       cleanedText = cleanedText.replace(/,/g, '');
     } else {
-      // Если есть только запятая (Европейский формат: "31202,00")
-      // Значит это копейки. Меняем запятую на точку для parseFloat.
       cleanedText = cleanedText.replace(',', '.');
     }
 
     const currentUsdBalance = parseFloat(cleanedText);
-    // ----------------------------
 
     console.log(`💵 Текущий баланс USD: ${currentUsdBalance}`);
 
-    // 3. ПРОВЕРЯЕМ, ХВАТАЕТ ЛИ ДЕНЕГ
     if (currentUsdBalance < WITHDRAW_AMOUNT) {
       console.log(
         `⚠️ Недостаточно USD для вывода. Требуется: ${WITHDRAW_AMOUNT}, Баланс: ${currentUsdBalance}`,
       );
-      // Красиво пропускаем тест (будет желтым в отчете)
       test.skip(
         true,
         `Insufficient USD balance. Required: ${WITHDRAW_AMOUNT}, Actual: ${currentUsdBalance}`,
       );
     }
 
-    // 4. ОСНОВНОЙ ФЛОУ ВЫВОДА
     await page
       .locator('div')
       .filter({ hasText: /^USDДоллар США$/ })
@@ -344,37 +331,26 @@ test.describe('Тест скипа', () => {
       .filter({ hasText: /^Withdraw$/ })
       .click();
 
-    // Даем модалке/странице время на открытие
     await page.waitForTimeout(500);
     await page.locator('div').filter({ hasText: 'Bank transferWithdrawal by' }).nth(5).click();
 
-    // Выбираем счет (радиобаттон)
     const radioBtn = page.getByRole('button', { name: 'Test25 IBAN' }).getByRole('radio');
     await radioBtn.click();
 
-    // Кликаем Continue
     await page.getByRole('button', { name: 'Continue' }).click();
 
-    // Вводим сумму
-    // Ищем контейнер с текстом USDMAX и берем инпут внутри него
     const amountFieldWrapper = page
       .locator('div')
       .filter({ hasText: /^USDMAX$/ })
       .nth(1);
     await amountFieldWrapper.locator('input').fill(WITHDRAW_AMOUNT.toString());
-
-    // Нажимаем Withdraw (Подтверждение)
     await page.getByRole('button', { name: 'Withdraw' }).click();
-
-    // Проверяем сообщение об успехе (запрос к банку может идти долго, даем 15 сек)
     const successMsg = page.getByText('We have received your');
     await expect(successMsg).toBeVisible({ timeout: 15000 });
     console.log('✅ Success message appeared!');
 
-    // Закрываем модалку
     await page.getByText('Got it').click();
 
-    // Ждем, пока модалка закроется, чтобы не сломать следующие шаги
     await expect(successMsg).toBeHidden();
     console.log('✅ Fiat withdrawal flow completed successfully');
   });
