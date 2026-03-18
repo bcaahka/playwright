@@ -54,7 +54,24 @@ pipeline {
             steps {
                 echo 'Running Playwright tests for Android APK...'
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                    sh 'PLAYWRIGHT_BLOB_OUTPUT_DIR=blob-report-android npx playwright test --project="Android APK" --workers=1 --reporter=blob'
+                    sh '''
+                        if ! command -v adb >/dev/null 2>&1; then
+                            echo "ADB is not installed on this Jenkins agent. Skipping Android APK tests."
+                            exit 0
+                        fi
+
+                        if ! adb start-server >/dev/null 2>&1; then
+                            echo "ADB server is unavailable. Skipping Android APK tests."
+                            exit 0
+                        fi
+
+                        if ! adb devices | awk 'NR>1 && $2=="device" { found=1 } END { exit found ? 0 : 1 }'; then
+                            echo "Android device is not connected. Skipping Android APK tests."
+                            exit 0
+                        fi
+
+                        PLAYWRIGHT_BLOB_OUTPUT_DIR=blob-report-android npx playwright test --project="Android APK" --workers=1 --reporter=blob
+                    '''
                 }
             }
         }

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { _android as android, test, expect, Page } from '@playwright/test';
 
 const CONFIG = {
@@ -19,6 +20,45 @@ function logOk(message: string, ...args: unknown[]) {
 
 function logWarn(message: string, ...args: unknown[]) {
   console.log(`[WARN] ${message}`, ...args);
+}
+
+function checkAdbAvailability(): { ok: true } | { ok: false; reason: string; details?: unknown } {
+  try {
+    execFileSync('adb', ['start-server'], { stdio: 'pipe' });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'ADB server is unavailable',
+      details: error,
+    };
+  }
+
+  try {
+    const output = execFileSync('adb', ['devices'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const connectedDevices = output
+      .split(/\r?\n/)
+      .slice(1)
+      .map((line) => line.trim())
+      .filter((line) => /\tdevice$/.test(line));
+
+    if (!connectedDevices.length) {
+      return {
+        ok: false,
+        reason: 'Android device is not connected',
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'Unable to get Android devices list',
+      details: error,
+    };
+  }
 }
 
 async function getLastEmailId(): Promise<string | null> {
@@ -65,6 +105,14 @@ test.describe('Android APK - Full Smoke Suite', () => {
   test.setTimeout(180000);
 
   test('End-to-End User Journey inside APK', async () => {
+    logInfo('Checking ADB availability');
+    const adbAvailability = checkAdbAvailability();
+    if (!adbAvailability.ok) {
+      logWarn(`${adbAvailability.reason}. Skipping test.`, adbAvailability.details ?? '');
+      test.skip(true, adbAvailability.reason);
+      return;
+    }
+
     logInfo('Connecting to Android device');
     let device: Awaited<ReturnType<typeof android.devices>>[number] | undefined;
 
