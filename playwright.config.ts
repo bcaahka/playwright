@@ -38,6 +38,7 @@ export default defineConfig({
   projects: [
     {
       name: 'Mobile Chrome',
+      testIgnore: /android-apk\.spec\.ts/,
       use: {
         ...devices['Pixel 5'],
         browserName: 'chromium',
@@ -46,9 +47,18 @@ export default defineConfig({
 
     {
       name: 'Mobile Safari',
+      testIgnore: /android-apk\.spec\.ts/,
       use: {
         ...devices['iPhone 13'],
         browserName: 'webkit',
+      },
+    },
+
+    {
+      name: 'Android APK',
+      testMatch: /android-apk\.spec\.ts/,
+      use: {
+        browserName: 'chromium',
       },
     },
   ],

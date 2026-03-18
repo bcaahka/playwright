@@ -28,7 +28,7 @@ pipeline {
         stage('Clean Previous Reports') {
             steps {
                 echo 'Cleaning previous reports...'
-                sh 'rm -rf playwright-report blob-report-chromium blob-report-safari merged-blob-report'
+                sh 'rm -rf playwright-report blob-report-chromium blob-report-safari blob-report-android merged-blob-report'
             }
         }
 
@@ -50,12 +50,22 @@ pipeline {
             }
         }
 
+        stage('Run Android APK Tests') {
+            steps {
+                echo 'Running Playwright tests for Android APK...'
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh 'PLAYWRIGHT_BLOB_OUTPUT_DIR=blob-report-android npx playwright test --project="Android APK" --workers=1 --reporter=blob'
+                }
+            }
+        }
+
         stage('Merge Playwright Reports') {
             steps {
                 echo 'Merging Playwright reports...'
                 sh 'mkdir -p merged-blob-report'
                 sh 'cp -r blob-report-chromium/* merged-blob-report/ || true'
                 sh 'cp -r blob-report-safari/* merged-blob-report/ || true'
+                sh 'cp -r blob-report-android/* merged-blob-report/ || true'
                 sh 'PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report npx playwright merge-reports --reporter html merged-blob-report'
             }
         }

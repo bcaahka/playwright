@@ -1,7 +1,5 @@
 import { _android as android, test, expect, Page } from '@playwright/test';
 
-test.skip(({ browserName }) => browserName !== 'chromium', 'Android tests should only run once');
-
 const CONFIG = {
   MAILHOG_API: 'http://192.168.200.190:8025/api/v2/messages',
   USER: {
