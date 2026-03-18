@@ -1,8 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
 
-// ==========================================
-// 1. CONFIG & HELPERS
-// ==========================================
 const CONFIG = {
   URL: 'https://192.168.253.40:6161',
   MAILHOG_API: 'http://192.168.200.190:8025/api/v2/messages',
@@ -12,6 +9,18 @@ const CONFIG = {
     pin: '123456',
   },
 };
+
+function logInfo(message: string, ...args: unknown[]) {
+  console.log(`[INFO] ${message}`, ...args);
+}
+
+function logOk(message: string, ...args: unknown[]) {
+  console.log(`[OK] ${message}`, ...args);
+}
+
+function logWarn(message: string, ...args: unknown[]) {
+  console.log(`[WARN] ${message}`, ...args);
+}
 
 async function getLastEmailId(): Promise<string | null> {
   const res = await fetch(CONFIG.MAILHOG_API);
@@ -30,13 +39,13 @@ async function waitForNewEmail(previousId: string | null, timeout = 20000): Prom
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error('⚠️ New email not received within timeout');
+  throw new Error('New email was not received within timeout');
 }
 
 function extractOtp(rawHtml: string): string {
   const normalized = rawHtml.replace(/=\r?\n/g, '').replace(/=3D/g, '=');
   const match = normalized.match(/<strong>\s*(\d{6})\s*<\/strong>/i);
-  if (!match) throw new Error('⚠️ OTP not found in email');
+  if (!match) throw new Error('OTP not found in email');
   return match[1];
 }
 
@@ -49,12 +58,9 @@ async function enterPin(page: Page, pin: string) {
     await pinFields.nth(i).focus();
     await pinFields.nth(i).type(pin[i], { delay: 100 });
   }
-  console.log('🔓 PIN entered successfully');
-}
 
-// ==========================================
-// 2. TEST SUITE (SERIAL MODE)
-// ==========================================
+  logOk('PIN entered successfully');
+}
 
 test.describe.configure({ mode: 'serial' });
 
@@ -74,9 +80,6 @@ test.describe('BynexE2E', () => {
     await page.close();
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 1: AUTHENTICATION
-  // -----------------------------------------------------------------------
   test('Step 1: Login, OTP and PIN creation', async () => {
     await page.goto(CONFIG.URL);
 
@@ -97,7 +100,7 @@ test.describe('BynexE2E', () => {
     const emailHtml = await waitForNewEmail(lastEmailId);
     const otp = extractOtp(emailHtml);
     await page.getByPlaceholder('------').fill(otp);
-    console.log('✔ OTP entered');
+    logOk('OTP entered');
 
     const pinPageText = page.getByText('Create your PIN-code');
     await expect(pinPageText).toBeVisible({ timeout: 10000 });
@@ -107,17 +110,14 @@ test.describe('BynexE2E', () => {
     try {
       await enableBtn.waitFor({ state: 'visible', timeout: 5000 });
       await enableBtn.click();
-      console.log('✔ "Enable" button clicked');
-    } catch (e) {
-      console.log('ℹ️ "Enable" button skipped (not visible in CI)');
+      logOk('"Enable" button clicked');
+    } catch {
+      logInfo('"Enable" button skipped (not visible in CI)');
     }
 
     await expect(page.getByRole('tab', { name: 'Home' })).toBeVisible({ timeout: 20000 });
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 2: SETTINGS & PERSISTENCE
-  // -----------------------------------------------------------------------
   test('Step 2: Dark Theme Persistence after Reload', async () => {
     await page.getByRole('tab', { name: 'Profile' }).click();
     await page.getByText('ThemeLight', { exact: true }).click();
@@ -130,7 +130,7 @@ test.describe('BynexE2E', () => {
     );
     expect(bgColorBefore).not.toBe('rgb(255, 255, 255)');
 
-    console.log('🔄 Reloading page...');
+    logInfo('Reloading page');
     await page.goto('about:blank');
     await page.goto(CONFIG.URL, { waitUntil: 'networkidle' });
 
@@ -143,9 +143,6 @@ test.describe('BynexE2E', () => {
     expect(bgColorAfter).not.toBe('rgb(255, 255, 255)');
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 3: FINANCE
-  // -----------------------------------------------------------------------
   test('Step 3: BTC Exchange Logic', async () => {
     await page.getByRole('tab', { name: 'Wallets' }).click();
     await page.getByRole('img').nth(1).click();
@@ -154,22 +151,17 @@ test.describe('BynexE2E', () => {
     const btcWalletBlock = page
       .locator('div.MuiStack-root.css-1kled2g', { has: page.locator('p', { hasText: 'BTC' }) })
       .first();
-
     const btcBalanceDiv = btcWalletBlock.locator('div.MuiTypography-root.css-9a9k88').first();
 
     const oldBalanceText = await btcBalanceDiv.innerText();
     const oldBalance = parseFloat(oldBalanceText.replace(/\s/g, '').replace(',', '.'));
-    console.log('💰 Старый баланс BTC:', oldBalance);
+    logInfo('Previous BTC balance', oldBalance);
 
-    // =====================================================================
-    // ПРОВЕРКА ДОСТАТОЧНОСТИ БАЛАНСА
-    // =====================================================================
     if (oldBalance < SELL_AMOUNT) {
-      isExchangeSkipped = true; // Запоминаем, что мы пропустили обмен
-      console.log(
-        `⚠️ Недостаточно средств для обмена. Требуется: ${SELL_AMOUNT}, Баланс: ${oldBalance}`,
+      isExchangeSkipped = true;
+      logWarn(
+        `Insufficient funds for exchange. Required: ${SELL_AMOUNT}, Actual: ${oldBalance}`,
       );
-      // Прерываем тест красиво (будет помечен желтым "Skipped" в отчете)
       test.skip(true, `Insufficient BTC balance. Required: ${SELL_AMOUNT}, Actual: ${oldBalance}`);
     }
 
@@ -201,7 +193,7 @@ test.describe('BynexE2E', () => {
     let newBalance = oldBalance;
     const maxRetries = 60;
 
-    console.log('⏳ Waiting for balance update...');
+    logInfo('Waiting for balance update');
     for (let i = 0; i < maxRetries; i++) {
       const newBalanceText = await btcBalanceDivNew.innerText();
       const cleanedText = newBalanceText.replace(/\s/g, '').replace(',', '.');
@@ -211,16 +203,12 @@ test.describe('BynexE2E', () => {
       await page.waitForTimeout(500);
     }
 
-    console.log('💰 Новый баланс BTC:', newBalance);
+    logInfo('New BTC balance', newBalance);
     expect(newBalance).toBeLessThan(oldBalance);
     expect(newBalance).toBeLessThanOrEqual(oldBalance - SELL_AMOUNT + 0.0001);
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 4: HISTORY CHECK
-  // -----------------------------------------------------------------------
   test('Step 4: Verify Transaction History', async () => {
-    // Если обмен не состоялся из-за нехватки баланса, пропускаем и проверку истории
     if (isExchangeSkipped) {
       test.skip(true, 'Exchange was skipped due to low balance, no history to verify.');
     }
@@ -244,9 +232,6 @@ test.describe('BynexE2E', () => {
     await page.getByRole('button').first().click();
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 5: UI FILTER (Hide Empty)
-  // -----------------------------------------------------------------------
   test('Step 5: Check "Hide Empty Balances" Filter', async () => {
     await page.getByRole('tab', { name: 'Wallets' }).click();
 
@@ -267,11 +252,8 @@ test.describe('BynexE2E', () => {
     await hideCheckbox.click();
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 6: FIAT WITHDRAWAL (USD)
-  // -----------------------------------------------------------------------
   test('Step 6: Fiat Withdrawal (USD)', async () => {
-    console.log('💸 Initiating Fiat Withdrawal...');
+    logInfo('Starting fiat withdrawal');
     const WITHDRAW_AMOUNT = 150;
 
     await page.getByRole('tab', { name: 'Wallets' }).click();
@@ -308,12 +290,11 @@ test.describe('BynexE2E', () => {
     }
 
     const currentUsdBalance = parseFloat(cleanedText);
-
-    console.log(`💵 Текущий баланс USD: ${currentUsdBalance}`);
+    logInfo('Current USD balance', currentUsdBalance);
 
     if (currentUsdBalance < WITHDRAW_AMOUNT) {
-      console.log(
-        `⚠️ Недостаточно USD для вывода. Требуется: ${WITHDRAW_AMOUNT}, Баланс: ${currentUsdBalance}`,
+      logWarn(
+        `Insufficient USD for withdrawal. Required: ${WITHDRAW_AMOUNT}, Actual: ${currentUsdBalance}`,
       );
       test.skip(
         true,
@@ -345,19 +326,16 @@ test.describe('BynexE2E', () => {
       .nth(1);
     await amountFieldWrapper.locator('input').fill(WITHDRAW_AMOUNT.toString());
     await page.getByRole('button', { name: 'Withdraw' }).click();
+
     const successMsg = page.getByText('We have received your');
     await expect(successMsg).toBeVisible({ timeout: 15000 });
-    console.log('✅ Success message appeared!');
+    logOk('Withdrawal success message appeared');
 
     await page.getByText('Got it').click();
-
     await expect(successMsg).toBeHidden();
-    console.log('✅ Fiat withdrawal flow completed successfully');
+    logOk('Fiat withdrawal flow completed successfully');
   });
 
-  // -----------------------------------------------------------------------
-  // TEST 7: SECURITY (Logout)
-  // -----------------------------------------------------------------------
   test('Step 7: Logout & Security Check', async () => {
     await page.getByRole('tab', { name: 'Profile' }).click();
 
@@ -375,19 +353,12 @@ test.describe('BynexE2E', () => {
     const loginInput = page.getByRole('textbox', { name: 'Login or E-mail' });
     await expect(loginInput).toBeVisible({ timeout: 15000 });
 
-    // --- SECURITY CHECK ---
-    console.log('🕵️ Checking back button hijacking...');
+    logInfo('Checking back button hijacking');
     await page.goBack();
-
-    // 1. Убеждаемся, что нас НЕ пустило обратно в приложение (вкладка Home должна отсутствовать)
     await expect(page.getByRole('tab', { name: 'Home' })).toBeHidden();
 
-    // 2. Ждем появления ЛИБО Логина, ЛИБО экрана ввода ПИН-кода
     const pinScreen = page.getByText(/Create your PIN-code|Enter your PIN-code/i);
-
-    // Playwright будет ждать, пока не появится хотя бы один из этих элементов
     await expect(loginInput.or(pinScreen).first()).toBeVisible();
-
-    console.log('✅ Session securely terminated');
+    logOk('Session securely terminated');
   });
 });
