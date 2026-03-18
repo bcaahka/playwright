@@ -1,53 +1,72 @@
 pipeline {
-    // Запускаем тесты напрямую на сервере Jenkins
-    agent any 
+    agent any
 
-    // Загружаем NodeJS, который мы настроили в Jenkins Tools
     tools {
-        nodejs 'NodeJS' 
+        nodejs 'NodeJS'
     }
 
     environment {
-        // Флаг CI сообщает Playwright, что нужно работать в фоновом режиме (headless: true)
         CI = 'true'
-        // Забираем пароль от тестового аккаунта из секретов Jenkins
         TEST_USER_PASSWORD = credentials('bynex-test-password')
     }
 
     stages {
         stage('Install Dependencies') {
             steps {
-                echo '📦 Установка NPM зависимостей...'
+                echo 'Installing npm dependencies...'
                 sh 'npm ci'
             }
         }
 
         stage('Install Playwright Browsers') {
             steps {
-                echo '🌐 Установка браузеров Playwright (Chrome & Safari)...'
-                // Устанавливаем браузеры и их системные зависимости
+                echo 'Installing Playwright browsers (Chromium and WebKit)...'
                 sh 'npx playwright install --with-deps chromium webkit'
             }
         }
 
-        stage('Run Tests') {
+        stage('Clean Previous Reports') {
             steps {
-                echo '🚀 Запуск E2E тестов...'
-                // Запускаем тесты в 1 поток для стабильности
-                sh 'npx playwright test --workers=1'
+                echo 'Cleaning previous reports...'
+                sh 'rm -rf playwright-report blob-report-chromium blob-report-safari merged-blob-report'
+            }
+        }
+
+        stage('Run Chromium Tests') {
+            steps {
+                echo 'Running Playwright tests for Mobile Chrome...'
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh 'PLAYWRIGHT_BLOB_OUTPUT_DIR=blob-report-chromium npx playwright test --project="Mobile Chrome" --workers=1 --reporter=blob'
+                }
+            }
+        }
+
+        stage('Run Safari Tests') {
+            steps {
+                echo 'Running Playwright tests for Mobile Safari...'
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh 'PLAYWRIGHT_BLOB_OUTPUT_DIR=blob-report-safari npx playwright test --project="Mobile Safari" --workers=1 --reporter=blob'
+                }
+            }
+        }
+
+        stage('Merge Playwright Reports') {
+            steps {
+                echo 'Merging Playwright reports...'
+                sh 'mkdir -p merged-blob-report'
+                sh 'cp -r blob-report-chromium/* merged-blob-report/ || true'
+                sh 'cp -r blob-report-safari/* merged-blob-report/ || true'
+                sh 'PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report npx playwright merge-reports --reporter html merged-blob-report'
             }
         }
     }
 
     post {
         always {
-            echo '📁 Сохранение отчетов...'
-            // 1. Сохраняем папку с отчетом как артефакт (чтобы скачивать ZIP)
+            echo 'Archiving reports...'
             archiveArtifacts artifacts: 'playwright-report/**/*', allowEmptyArchive: true
-
-            // 2. Публикуем красивый HTML отчет прямо в интерфейсе Jenkins (HTML Publisher Plugin)
             publishHTML([
-                allowMissing: false,
+                allowMissing: true,
                 alwaysLinkToLastBuild: true,
                 keepAll: true,
                 reportDir: 'playwright-report',
@@ -57,10 +76,10 @@ pipeline {
             ])
         }
         success {
-            echo '✅ Тесты прошли успешно!'
+            echo 'Tests completed successfully.'
         }
         failure {
-            echo '❌ Тесты упали. Проверьте Playwright Report для деталей.'
+            echo 'Some tests failed. Check the Playwright report for details.'
         }
     }
 }
